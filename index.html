@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Turing Machine Music Engine</title>
+  <meta name="description" content="A functional simulation of a Deterministic Turing Machine that maps logical state transitions to musical notes — a creative proof of the Church-Turing Thesis." />
+  <link rel="icon" type="image/svg+xml" href="assets/icons/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+  <link rel="stylesheet" href="src/ui/styles.css" />
+</head>
+<body>
+
+  <!-- Toast notification -->
+  <div id="toast" class="toast" role="alert" aria-live="assertive"></div>
+
+  <!-- Keyboard shortcuts modal -->
+  <div id="shortcuts-overlay" class="modal-overlay" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
+      <div class="modal-header">
+        <span class="modal-title">Keyboard Shortcuts</span>
+        <button class="modal-close" onclick="UI.closeShortcuts()" aria-label="Close">✕</button>
+      </div>
+      <div class="shortcuts-grid">
+        <kbd>→</kbd><span>Step forward</span>
+        <kbd>Space</kbd><span>Run / Pause</span>
+        <kbd>R</kbd><span>Reset tape</span>
+        <kbd>L</kbd><span>Load tape</span>
+        <kbd>M</kbd><span>Mute / Unmute</span>
+        <kbd>+</kbd><span>Speed up</span>
+        <kbd>−</kbd><span>Speed down</span>
+        <kbd>?</kbd><span>This panel</span>
+        <kbd>Esc</kbd><span>Close panel</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom TM builder modal -->
+  <div id="custom-overlay" class="modal-overlay" aria-hidden="true">
+    <div class="modal modal-wide" role="dialog" aria-modal="true" aria-label="Custom TM Builder">
+      <div class="modal-header">
+        <span class="modal-title">Custom TM Builder</span>
+        <button class="modal-close" onclick="UI.closeCustom()" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label">Program Name</label>
+          <input class="form-input" id="custom-name" type="text" placeholder="My TM" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">Default Input</label>
+          <input class="form-input" id="custom-input" type="text" placeholder="101" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">Initial State</label>
+          <input class="form-input" id="custom-q0" type="text" placeholder="q0" value="q0" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">Accept States (comma-separated)</label>
+          <input class="form-input" id="custom-F" type="text" placeholder="HALT" value="HALT" />
+        </div>
+        <div class="form-row">
+          <label class="form-label">Transitions (one per line: state,read,write,dir,next,note)</label>
+          <textarea class="form-textarea" id="custom-transitions" rows="8" placeholder="q0,0,1,R,q0,C4&#10;q0,1,0,R,q0,E4&#10;q0,B,B,L,HALT,G4"></textarea>
+        </div>
+        <div id="custom-error" class="form-error" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="UI.closeCustom()">Cancel</button>
+          <button class="btn btn-load" onclick="App.loadCustomProgram()">Load Program</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+
+    <!-- ── Header ──────────────────────────────────────────── -->
+    <header class="header">
+      <div class="header-top">
+        <div class="badge"><span class="dot"></span> Deterministic Turing Machine</div>
+        <div class="header-actions">
+          <button class="icon-btn" id="mute-btn" onclick="App.toggleMute()" title="Mute audio (M)" aria-label="Toggle mute">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" id="sound-waves"/></svg>
+          </button>
+          <button class="icon-btn" onclick="UI.openCustom()" title="Custom TM Builder" aria-label="Open custom TM builder">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+          <button class="icon-btn" onclick="App.exportLog()" title="Export execution log" aria-label="Export log">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
+          <button class="icon-btn" onclick="UI.openShortcuts()" title="Keyboard shortcuts (?)" aria-label="Show shortcuts">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </button>
+        </div>
+      </div>
+      <h1>Computable Composer</h1>
+      <p class="subtitle">M = (Q, Σ, Γ, δ, q₀, B, F) → Musical Output</p>
+    </header>
+
+    <!-- ── Program selector ────────────────────────────────── -->
+    <section class="card" aria-label="Program Selection">
+      <div class="card-label">TM Program</div>
+      <div class="program-row">
+        <select id="program-select" aria-label="Select Turing Machine program"></select>
+        <span id="prog-desc" class="prog-desc"></span>
+        <div class="prog-meta" id="prog-meta"></div>
+      </div>
+    </section>
+
+    <!-- ── Tape input ───────────────────────────────────────── -->
+    <section class="card" aria-label="Tape Input">
+      <div class="card-label">Input Tape Σ ∈ {0, 1, B}</div>
+      <div class="input-row">
+        <div class="input-wrapper">
+          <input
+            class="tape-input"
+            id="tape-input"
+            type="text"
+            placeholder="1 1 0 1"
+            maxlength="24"
+            aria-label="Tape input string"
+            aria-describedby="tape-input-hint tape-input-error"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="input-validation-icon" id="input-validation-icon"></div>
+        </div>
+        <button class="btn btn-load" id="btn-load" onclick="App.loadTape()">Load ↵</button>
+      </div>
+      <div class="input-hint" id="tape-input-hint">Enter a binary string (e.g. "1101"). Spaces ignored. B = blank.</div>
+      <div class="input-error" id="tape-input-error" role="alert" aria-live="polite"></div>
+    </section>
+
+    <!-- ── Tape visualization ────────────────────────────────── -->
+    <section class="card" aria-label="Tape Visualization">
+      <div class="tape-header">
+        <div class="card-label">Tape Γ</div>
+        <div class="tape-meta">
+          <span class="tape-stat" id="tape-length-stat">Length: 0</span>
+          <span class="tape-stat" id="head-pos-stat">Head: 0</span>
+          <span class="step-counter" id="step-counter">Step: 0</span>
+        </div>
+      </div>
+      <div class="tape-scroll" id="tape-scroll" role="region" aria-label="Tape cells">
+        <div class="tape-cells" id="tape-cells"></div>
+      </div>
+      <div class="tape-progress-wrap">
+        <div class="tape-progress-label">Tape usage</div>
+        <div class="tape-progress-bar"><div class="tape-progress-fill" id="tape-progress"></div></div>
+      </div>
+    </section>
+
+    <!-- ── Machine state ─────────────────────────────────────── -->
+    <section class="card" aria-label="Machine State">
+      <div class="card-label">Machine State</div>
+      <div class="state-row">
+        <div class="state-box" id="box-state">
+          <div class="s-label">Current State</div>
+          <div class="s-val" id="disp-state">—</div>
+        </div>
+        <div class="state-box" id="box-read">
+          <div class="s-label">Symbol Read</div>
+          <div class="s-val" id="disp-read">—</div>
+        </div>
+        <div class="state-box" id="box-write">
+          <div class="s-label">Symbol Written</div>
+          <div class="s-val" id="disp-write">—</div>
+        </div>
+        <div class="state-box" id="box-move">
+          <div class="s-label">Head Move</div>
+          <div class="s-val" id="disp-move">—</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <div class="card-label">Instantaneous Description (ID)</div>
+        <div class="id-display" id="id-display" aria-live="polite">
+          <span class="id-placeholder">Load a tape to begin…</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Controls + Music ──────────────────────────────────── -->
+    <div class="grid2">
+      <section class="card" aria-label="Controls">
+        <div class="card-label">Controls</div>
+        <div class="controls">
+          <button class="btn btn-step" id="btn-step" onclick="App.stepTM()" disabled title="Step (→)">Step →</button>
+          <button class="btn btn-run"  id="btn-run"  onclick="App.toggleRun()" disabled title="Run/Pause (Space)">Run ▶</button>
+          <button class="btn btn-reset" onclick="App.resetTM()" title="Reset (R)">Reset ↺</button>
+        </div>
+        <div class="speed-wrap">
+          <label for="speed">Speed</label>
+          <input type="range" id="speed" min="50" max="1500" value="500" step="50" aria-label="Execution speed in milliseconds" />
+          <span id="speed-label" class="speed-label">500ms</span>
+        </div>
+        <div class="status-bar idle" id="status-bar" role="status" aria-live="polite">
+          <div class="status-dot"></div>
+          <span id="status-text">Waiting for input</span>
+        </div>
+
+        <!-- Stats row -->
+        <div class="stats-row">
+          <div class="stat-chip"><span class="stat-label">Steps</span><span class="stat-val" id="stat-steps">0</span></div>
+          <div class="stat-chip"><span class="stat-label">Writes</span><span class="stat-val" id="stat-writes">0</span></div>
+          <div class="stat-chip"><span class="stat-label">L moves</span><span class="stat-val" id="stat-left">0</span></div>
+          <div class="stat-chip"><span class="stat-label">R moves</span><span class="stat-val" id="stat-right">0</span></div>
+        </div>
+
+        <!-- Loop detection warning -->
+        <div class="loop-warning" id="loop-warning" aria-live="polite" hidden>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Possible infinite loop detected (step limit reached)
+        </div>
+      </section>
+
+      <section class="card" aria-label="Music Output">
+        <div class="card-label">Music Output</div>
+        <div class="music-row">
+          <div class="note-display" id="note-display" aria-live="polite">—</div>
+          <div class="music-viz" id="music-viz"></div>
+          <div class="volume-wrap">
+            <label for="volume-slider" class="vol-label">Vol</label>
+            <input type="range" id="volume-slider" min="-30" max="0" value="-10" step="1" aria-label="Volume" />
+          </div>
+        </div>
+        <div style="margin-top:10px;">
+          <div class="section-title">Melody so far</div>
+          <div class="melody-row" id="melody-row">
+            <span class="melody-empty">—</span>
+          </div>
+        </div>
+        <div class="music-footer">
+          <span class="note-legend">Write 0 → C4 · Write 1 → E4 · HALT → Chord</span>
+          <button class="text-btn" onclick="App.replayMelody()" id="replay-btn" disabled title="Replay melody">Replay ▶</button>
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Transition table + log ────────────────────────────── -->
+    <div class="grid2">
+      <section class="card" aria-label="Transition Function">
+        <div class="card-label">Transition Function δ</div>
+        <div class="trans-scroll">
+          <table class="trans-table" id="trans-table" aria-label="Transition rules">
+            <thead>
+              <tr>
+                <th scope="col">(State, Read)</th>
+                <th scope="col">Write → Next</th>
+                <th scope="col">Move</th>
+                <th scope="col">Note</th>
+                <th scope="col" class="col-fires">Fires</th>
+              </tr>
+            </thead>
+            <tbody id="trans-tbody"></tbody>
+          </table>
+        </div>
+        <div class="trans-footer">
+          <span class="trans-stat" id="trans-coverage">Coverage: 0 / 0 rules fired</span>
+        </div>
+      </section>
+
+      <section class="card" aria-label="Execution Log">
+        <div class="card-label">
+          Execution Log
+          <button class="text-btn" onclick="App.clearLog()" style="float:right;margin-top:-1px">Clear</button>
+        </div>
+        <div class="log" id="exec-log" role="log" aria-live="polite" aria-label="Execution history"></div>
+        <div class="log-footer">
+          <label class="checkbox-label">
+            <input type="checkbox" id="log-verbose" checked />
+            <span>Verbose</span>
+          </label>
+          <span class="log-count" id="log-count">0 entries</span>
+        </div>
+      </section>
+    </div>
+
+    <!-- ── Computation history ────────────────────────────────── -->
+    <section class="card" aria-label="Computation History">
+      <div class="card-label">
+        Computation History
+        <button class="text-btn" onclick="App.clearHistory()" style="float:right;margin-top:-1px">Clear</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <span class="history-empty">No computations run yet.</span>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>A creative proof of the <strong>Church-Turing Thesis</strong> — anything effectively calculable can be computed by a Turing Machine.</p>
+      <p class="footer-links">
+        <a href="docs/THEORY.md" target="_blank">Theory Notes</a>
+        &nbsp;·&nbsp;
+        <a href="https://github.com/your-username/turing-machine-music" target="_blank">GitHub</a>
+        &nbsp;·&nbsp;
+        <span id="footer-version">v2.0</span>
+      </p>
+      <p class="footer-info">
+        <strong>Name:</strong> MOULIDHARAN R<br>
+        <strong>Roll Number:</strong> S20240010152
+      </p>
+      <p class="footer-copyright">
+        &copy; 2026 MOULIDHARAN R. All rights reserved.
+      </p>
+    </footer>
+
+  </div>
+
+  <script src="src/engine/programs.js"></script>
+  <script src="src/engine/machine.js"></script>
+  <script src="src/audio/synth.js"></script>
+  <script src="src/ui/render.js"></script>
+  <script src="src/ui/controls.js"></script>
+  <script src="src/app.js"></script>
+
+</body>
+</html>
